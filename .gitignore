@@ -1,0 +1,33 @@
+# Build output
+/build/
+/out/
+
+# Visual Studio / CMake
+.vs/
+.vscode/
+*.suo
+*.user
+*.vcxproj.user
+*.aps
+*.ncb
+*.opendb
+*.sdf
+*.cache
+
+# Compiled artifacts
+*.o
+*.obj
+*.exe
+*.dll
+*.lib
+*.a
+*.ilk
+*.pdb
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Others
+_TODO.txt

@@ -1,0 +1,19 @@
+#ifndef EXPENSE_LIST_H
+#define EXPENSE_LIST_H
+
+#include "expense.h"
+#include <vector>
+
+class ExpenseList {
+public:
+    void addExpense(const Expense& expense);
+    void displayExpenses() const;
+    void clearExpenses();
+    void deleteExpense(int index);
+    void modifyExpense(int index, UserList& userList);
+    std::vector<Expense> getExpenses() const;
+    void setAllEqualSplit(bool value);
+private:
+    std::vector<Expense> expenses;
+};
+#endif // EXPENSE_LIST_H
