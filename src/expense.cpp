@@ -48,5 +48,9 @@ void Expense::inputExpenseData(UserList& userList) {
 
 User Expense::getPaidBy() const {return user; }
 double Expense::getAmount() const { return amount; }
+std::string Expense::getItem() const { return item; }
 bool Expense::isEqualSplit() const { return equalSplit; }
+void Expense::setItem(const std::string& value) { item = value; }
+void Expense::setAmount(double value) { amount = value; }
+void Expense::setPaidBy(const User& value) { user = value; }
 void Expense::setEqualSplit(bool value) { equalSplit = value; }

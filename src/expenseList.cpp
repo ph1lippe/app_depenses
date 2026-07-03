@@ -41,6 +41,24 @@ std::vector<Expense> ExpenseList::getExpenses() const {
     return expenses;
 }
 
+int ExpenseList::size() const {
+    return static_cast<int>(expenses.size());
+}
+
+Expense ExpenseList::getExpense(int index) const {
+    if (index < 1 || index > expenses.size()) {
+        return Expense("Unknown", 0.0, User("Unknown", 0));
+    }
+    return expenses[index - 1];
+}
+
+void ExpenseList::updateExpense(int index, const Expense& expense) {
+    if (index < 1 || index > expenses.size()) {
+        return;
+    }
+    expenses[index - 1] = expense;
+}
+
 void ExpenseList::setAllEqualSplit(bool value) {
     for (auto& expense : expenses) {
         expense.setEqualSplit(value);

@@ -14,10 +14,14 @@ public:
     Expense(const std::string&, double, const User&);
     void display() const;
     void inputExpenseData(UserList& userList);
-    User Expense::getPaidBy() const;
-    double Expense::getAmount() const;
-    bool Expense::isEqualSplit() const;
-    void Expense::setEqualSplit(bool value);
+    User getPaidBy() const;
+    double getAmount() const;
+    std::string getItem() const;
+    bool isEqualSplit() const;
+    void setItem(const std::string&);
+    void setAmount(double);
+    void setPaidBy(const User&);
+    void setEqualSplit(bool value);
 
 private:
     std::string item;

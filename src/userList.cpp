@@ -45,10 +45,17 @@ User UserList::getUser(int index) const {
     return users[index - 1];
 }
 
+int UserList::size() const {
+    return static_cast<int>(users.size());
+}
+
 void UserList::updateSalaryFactors() {
     int meanSalary = 0;
     for (const auto& user : users) {
         meanSalary += user.getSalary();
+    }
+    if (users.empty()) {
+        return;
     }
     meanSalary /= static_cast<int>(users.size());
     for (auto& user : users) {
