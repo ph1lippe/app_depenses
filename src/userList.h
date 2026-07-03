@@ -9,12 +9,13 @@
 
 class UserList {
 public:
-    void addUser(const User&);    
+    void addUser(const User&);
     void displayUsers() const;
     void displayUsernames() const;
     void deleteUser(int index);
     void modifyUser(int index, const std::string& newName, int newSalary);
     User getUser(int index) const;
+    int size() const;
     void updateSalaryFactors();
 private:
     std::vector<User> users;

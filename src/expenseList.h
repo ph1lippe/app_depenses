@@ -12,6 +12,9 @@ public:
     void deleteExpense(int index);
     void modifyExpense(int index, UserList& userList);
     std::vector<Expense> getExpenses() const;
+    int size() const;
+    Expense getExpense(int index) const;
+    void updateExpense(int index, const Expense& expense);
     void setAllEqualSplit(bool value);
 private:
     std::vector<Expense> expenses;
