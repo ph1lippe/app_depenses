@@ -12,11 +12,13 @@ public:
     void addUser(const User&);
     void displayUsers() const;
     void displayUsernames() const;
+    void clearUsers();
     void deleteUser(int index);
     void modifyUser(int index, const std::string& newName, int newSalary);
     User getUser(int index) const;
     int size() const;
     void updateSalaryFactors();
+    User getUserByCardIdentifier(const std::string& cardIdentifier) const;
 private:
     std::vector<User> users;
 };

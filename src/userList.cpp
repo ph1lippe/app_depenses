@@ -4,6 +4,10 @@ void UserList::addUser(const User& user) {
     users.push_back(user);
 }
 
+void UserList::clearUsers() {
+    users.clear();
+}
+
 void UserList::deleteUser(int index) {
     if (index < 1 || index > users.size()) {
         std::cout << "Invalid user index." << std::endl;
@@ -43,6 +47,15 @@ User UserList::getUser(int index) const {
         return User("Unknown", 0);
     }
     return users[index - 1];
+}
+
+User UserList::getUserByCardIdentifier(const std::string& cardIdentifier) const {
+    for (const auto& user : users) {
+        if (user.getCardIdentifier() == cardIdentifier) {
+            return user;
+        }
+    }
+    return User("Unknown", 0);
 }
 
 int UserList::size() const {
