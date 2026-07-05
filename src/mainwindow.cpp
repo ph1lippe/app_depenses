@@ -70,7 +70,7 @@ MainWindow::MainWindow(QWidget* parent)
     // Box 2: expense list
     expenseListWidget = new QTableWidget(this);
     expenseListWidget->setColumnCount(6);
-    expenseListWidget->setHorizontalHeaderLabels({"Date", "Expense", "Amount", "Paid by", "Paid for", "Equal split"});
+    expenseListWidget->setHorizontalHeaderLabels({"Date", "Amount", "Paid by", "Paid for", "Equal split", "Expense"});
     expenseListWidget->setSelectionBehavior(QAbstractItemView::SelectRows);
     expenseListWidget->setSelectionMode(QAbstractItemView::ExtendedSelection);
     expenseListWidget->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -90,6 +90,7 @@ MainWindow::MainWindow(QWidget* parent)
     expenseListWidget->installEventFilter(this);
     expensesLayout->addWidget(expenseListWidget);
 
+    // Form layout to add individual expense:
     QFormLayout* expenseFormLayout = new QFormLayout();
     expenseItemEdit = new QLineEdit(this);
     expenseAmountEdit = new QDoubleSpinBox(this);
@@ -151,17 +152,27 @@ MainWindow::MainWindow(QWidget* parent)
 }
 
 
+
+// Event filter:
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
+    
     if (watched == expenseListWidget && event->type() == QEvent::KeyPress) {
         const auto* keyEvent = static_cast<QKeyEvent*>(event);
+        // If selected month changes:
         if (keyEvent->modifiers() == Qt::ControlModifier && keyEvent->key() == Qt::Key_A) {
             expenseListWidget->selectAll();
             return true;
+        }
+        // Delete rows if "delete" pressed on keyboard:
+        if (keyEvent->key() == Qt::Key_Delete){
+            MainWindow::removeExpense();
         }
     }
     return QMainWindow::eventFilter(watched, event);
 }
 
+
+// Methods to save users and expenses to AppData
 QString MainWindow::getAppDataDirectoryPath() const {
     const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     if (dataDir.isEmpty()) {
@@ -309,6 +320,7 @@ void MainWindow::loadExpenseSettingsFromDisk() {
         expense.setAmount(parts[1].toDouble());
         expense.setEqualSplit(parts[3] == "1");
 
+        // whenever expenses are loaded, statementMonth is attributed to expenses from the current month filter value:
         const QString dateText = parts.value(4).trimmed();
         const QString statementMonthText = parts.value(5).trimmed();
         const QString paidForText = parts.value(6).trimmed();
@@ -487,6 +499,7 @@ void MainWindow::refreshUserList() {
     }
 }
 
+// Update expense list:
 void MainWindow::refreshExpenseList() {
     visibleExpenseIndices.clear();
     expenseListWidget->setRowCount(0);
@@ -507,11 +520,11 @@ void MainWindow::refreshExpenseList() {
         const QString equalSplitText = expense.isEqualSplit() ? "Yes" : "No";
 
         expenseListWidget->setItem(visibleCount, 0, new QTableWidgetItem(dateText));
-        expenseListWidget->setItem(visibleCount, 1, new QTableWidgetItem(QString::fromStdString(expense.getItem())));
+        expenseListWidget->setItem(visibleCount, 1, new QTableWidgetItem(equalSplitText));
         expenseListWidget->setItem(visibleCount, 2, new QTableWidgetItem(amountText));
         expenseListWidget->setItem(visibleCount, 3, new QTableWidgetItem(QString::fromStdString(payerName.empty() ? "Unknown" : payerName)));
         expenseListWidget->setItem(visibleCount, 4, new QTableWidgetItem(QString::fromStdString(expense.getPaidFor().empty() ? "Both" : expense.getPaidFor())));
-        expenseListWidget->setItem(visibleCount, 5, new QTableWidgetItem(equalSplitText));
+        expenseListWidget->setItem(visibleCount, 5, new QTableWidgetItem(equalSplitText));expenseListWidget->setItem(visibleCount, 5, new QTableWidgetItem(QString::fromStdString(expense.getItem())));
         ++visibleCount;
     }
 
