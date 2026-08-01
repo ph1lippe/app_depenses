@@ -1,0 +1,49 @@
+name: Create Release Artifact
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  build-and-upload:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Qt
+        uses: jurplel/install-qt-action@v2
+        with:
+          version: 6.10.2
+          host: windows
+          arch: x64
+
+      - name: Configure CMake
+        run: |
+          cmake -S . -B build --preset mingw-debug
+
+      - name: Build package
+        run: |
+          cmake --build build --target package
+
+      - name: Find package artifact
+        id: find_package
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem -Path build -Filter 'app_depenses-*.zip' | Sort-Object LastWriteTime | Select-Object -Last 1
+          if (-not $zip) {
+            throw 'No package ZIP artifact found in build folder.'
+          }
+          Write-Host "package=$($zip.FullName)" >> $env:GITHUB_OUTPUT
+          Write-Host "name=$($zip.Name)" >> $env:GITHUB_OUTPUT
+
+      - name: Upload release asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ${{ steps.find_package.outputs.package }}
+          asset_name: ${{ steps.find_package.outputs.name }}
+          asset_content_type: application/zip

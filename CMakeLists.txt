@@ -27,6 +27,7 @@ src/settlement.cpp
 
 target_link_libraries(app_depenses PRIVATE Qt6::Widgets)
 target_include_directories(app_depenses PRIVATE src)
+install(TARGETS app_depenses RUNTIME DESTINATION .)
 
 add_executable(test_settlement
 src/expense.cpp
@@ -73,6 +74,17 @@ target_link_libraries(test_weighted_split PRIVATE Qt6::Widgets)
 
 add_test(NAME WeightedSplitTest COMMAND test_weighted_split)
 
+add_custom_target(run_tests
+    COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
+    DEPENDS test_settlement test_equal_split_different_salaries test_weighted_split
+)
+
+add_custom_target(release_artifact
+    COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target package
+    COMMENT "Build and package the app as a release artifact"
+    DEPENDS app_depenses
+)
+
 set(HEADER_FILES
 src/expense.h
 src/expenseList.h
@@ -83,5 +95,17 @@ src/mainwindow.h)
 
 include(CTest)
 enable_testing()
+
+# CPack packaging for release assets
+set(CPACK_PACKAGE_NAME "app_depenses")
+set(CPACK_PACKAGE_VERSION_MAJOR "${PROJECT_VERSION_MAJOR}")
+set(CPACK_PACKAGE_VERSION_MINOR "${PROJECT_VERSION_MINOR}")
+set(CPACK_PACKAGE_VERSION_PATCH "${PROJECT_VERSION_PATCH}")
+set(CPACK_PACKAGE_CONTACT "")
+set(CPACK_PACKAGE_VENDOR "")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Expense tracking application")
+set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}")
+set(CPACK_GENERATOR "ZIP")
+include(CPack)
 
 message(STATUS "CMake location: ${CMAKE_COMMAND}")

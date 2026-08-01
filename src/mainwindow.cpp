@@ -539,7 +539,7 @@ void MainWindow::importExpensesFromFile() {
         expense.setCardholder(knownPayer ? payer.getName() : std::string());
         expense.setCardIdentifier(cardIdentifier.toStdString());
         expense.setDate(isoDate.toStdString());
-        expense.setStatementMonth(QString("%1-%2").arg(importedDate.year(), 4, 10, QLatin1Char('0')).arg(importedDate.month(), 2, 10, QLatin1Char('0')).toStdString());
+        expense.setStatementMonth(QString("%1-%2").arg(selectedFilterYear, 4, 10, QLatin1Char('0')).arg(selectedFilterMonth, 2, 10, QLatin1Char('0')).toStdString());
         expense.setPaidFor("Both");
         expense.setEqualSplit(true);
         expenseList.addExpense(expense);
@@ -548,17 +548,6 @@ void MainWindow::importExpensesFromFile() {
 
     file.close();
     refreshUserList();
-
-    if (firstImportedDate.isValid()) {
-        selectedFilterYear = firstImportedDate.year();
-        selectedFilterMonth = firstImportedDate.month();
-        if (yearSpinBox) {
-            yearSpinBox->setValue(selectedFilterYear);
-        }
-        if (monthSlider) {
-            monthSlider->setValue(selectedFilterMonth);
-        }
-    }
 
     updateExpenseViewFilter();
 
