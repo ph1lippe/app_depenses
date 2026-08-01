@@ -21,6 +21,7 @@ public:
     std::string getDate() const;
     std::string getStatementMonth() const;
     std::string getPaidFor() const;
+    std::string getCardholder() const;
     bool isEqualSplit() const;
     void setItem(const std::string&);
     void setAmount(double);
@@ -30,6 +31,7 @@ public:
     void setStatementMonth(const std::string&);
     void setPaidFor(const std::string&);
     void setEqualSplit(bool value);
+    void setCardholder(const std::string& value);
 
 private:
     std::string item;
@@ -40,6 +42,7 @@ private:
     std::string statementMonth;
     std::string paidFor;
     bool equalSplit;
+    std::string cardholder;
 };
 
 #endif // EXPENSE_H

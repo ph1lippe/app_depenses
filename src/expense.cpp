@@ -53,12 +53,14 @@ std::string Expense::getCardIdentifier() const { return cardIdentifier; }
 std::string Expense::getDate() const { return date; }
 std::string Expense::getStatementMonth() const { return statementMonth; }
 std::string Expense::getPaidFor() const { return paidFor; }
+std::string Expense::getCardholder() const { return cardholder; }
 bool Expense::isEqualSplit() const { return equalSplit; }
 void Expense::setItem(const std::string& value) { item = value; }
 void Expense::setAmount(double value) { amount = value; }
-void Expense::setPaidBy(const User& value) { user = value; cardIdentifier = value.getCardIdentifier(); }
+void Expense::setPaidBy(const User& value) { user = value; }
 void Expense::setCardIdentifier(const std::string& value) { cardIdentifier = value; }
 void Expense::setDate(const std::string& value) { date = value; }
 void Expense::setStatementMonth(const std::string& value) { statementMonth = value; }
 void Expense::setPaidFor(const std::string& value) { paidFor = value; }
 void Expense::setEqualSplit(bool value) { equalSplit = value; }
+void Expense::setCardholder(const std::string& value) { cardholder = value; }

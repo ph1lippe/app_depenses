@@ -22,10 +22,56 @@ src/mainwindow.cpp
 src/user.cpp
 src/userList.cpp
 src/expenseManager.cpp
+src/settlement.cpp
 )
 
 target_link_libraries(app_depenses PRIVATE Qt6::Widgets)
 target_include_directories(app_depenses PRIVATE src)
+
+add_executable(test_settlement
+src/expense.cpp
+src/expenseList.cpp
+src/user.cpp
+src/userList.cpp
+src/settlement.cpp
+tests/test_settlement.cpp
+)
+
+target_include_directories(test_settlement PRIVATE src)
+
+target_link_libraries(test_settlement PRIVATE Qt6::Widgets)
+
+add_test(NAME SettlementTest COMMAND test_settlement)
+
+add_executable(test_equal_split_different_salaries
+src/expense.cpp
+src/expenseList.cpp
+src/user.cpp
+src/userList.cpp
+src/settlement.cpp
+tests/test_equal_split_different_salaries.cpp
+)
+
+target_include_directories(test_equal_split_different_salaries PRIVATE src)
+
+target_link_libraries(test_equal_split_different_salaries PRIVATE Qt6::Widgets)
+
+add_test(NAME EqualSplitDifferentSalariesTest COMMAND test_equal_split_different_salaries)
+
+add_executable(test_weighted_split
+src/expense.cpp
+src/expenseList.cpp
+src/user.cpp
+src/userList.cpp
+src/settlement.cpp
+tests/test_weighted_split.cpp
+)
+
+target_include_directories(test_weighted_split PRIVATE src)
+
+target_link_libraries(test_weighted_split PRIVATE Qt6::Widgets)
+
+add_test(NAME WeightedSplitTest COMMAND test_weighted_split)
 
 set(HEADER_FILES
 src/expense.h

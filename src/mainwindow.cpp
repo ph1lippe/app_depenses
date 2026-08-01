@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "settlement.h"
 #include <QMessageBox>
 #include <QStringList>
 #include <QDebug>
@@ -14,8 +15,26 @@
 #include <QKeyEvent>
 #include <QApplication>
 #include <QDir>
+#include <QRegularExpression>
+#include <QRegularExpressionValidator>
 #include <QtGlobal>
 
+class AmountTableWidgetItem : public QTableWidgetItem {
+public:
+    AmountTableWidgetItem(const QString& text, double value)
+        : QTableWidgetItem(text), amountValue(value) {}
+
+    bool operator<(const QTableWidgetItem& other) const override {
+        if (other.type() == type()) {
+            const auto* otherAmountItem = static_cast<const AmountTableWidgetItem*>(&other);
+            return amountValue < otherAmountItem->amountValue;
+        }
+        return QTableWidgetItem::operator<(other);
+    }
+
+private:
+    double amountValue;
+};
 
 // Main window setup
 MainWindow::MainWindow(QWidget* parent)
@@ -69,8 +88,8 @@ MainWindow::MainWindow(QWidget* parent)
 
     // Box 2: expense list
     expenseListWidget = new QTableWidget(this);
-    expenseListWidget->setColumnCount(6);
-    expenseListWidget->setHorizontalHeaderLabels({"Date", "Amount", "Paid by", "Paid for", "Equal split", "Expense"});
+    expenseListWidget->setColumnCount(7);
+    expenseListWidget->setHorizontalHeaderLabels({"Date", "Equal split", "Amount", "Cardholder", "Paid by", "Paid for", "Item"});
     expenseListWidget->setSelectionBehavior(QAbstractItemView::SelectRows);
     expenseListWidget->setSelectionMode(QAbstractItemView::ExtendedSelection);
     expenseListWidget->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -78,6 +97,7 @@ MainWindow::MainWindow(QWidget* parent)
     expenseListWidget->setFocusPolicy(Qt::StrongFocus);
     expenseListWidget->setAlternatingRowColors(true);
     expenseListWidget->horizontalHeader()->setStretchLastSection(true);
+    expenseListWidget->setSortingEnabled(true);
     connect(expenseListWidget, &QTableWidget::cellClicked, this, [this](int row, int column) {
         Q_UNUSED(column);
         if (row >= 0) {
@@ -88,6 +108,11 @@ MainWindow::MainWindow(QWidget* parent)
         }
     });
     expenseListWidget->installEventFilter(this);
+    connect(expenseListWidget->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this](const QItemSelection& selected, const QItemSelection&) {
+        Q_UNUSED(selected);
+        // update persistent selection index
+        lastSelectedExpenseIndex = getSelectedExpenseIndex();
+    });
     expensesLayout->addWidget(expenseListWidget);
 
     // Form layout to add individual expense:
@@ -96,18 +121,33 @@ MainWindow::MainWindow(QWidget* parent)
     expenseAmountEdit = new QDoubleSpinBox(this);
     expenseAmountEdit->setRange(0.0, 10000000.0);
     expenseAmountEdit->setDecimals(2);
+    expenseAmountEdit->setSpecialValueText("");
+    expenseDateEdit = new QLineEdit(this);
+    expenseCardholderCombo = new QComboBox(this);
     expensePayerCombo = new QComboBox(this);
     expensePaidForCombo = new QComboBox(this);
     equalSplitCheck = new QCheckBox("Equal split", this);
+    equalSplitCheck->setTristate(false);
     expenseFormLayout->addRow("Item", expenseItemEdit);
     expenseFormLayout->addRow("Amount", expenseAmountEdit);
+    expenseFormLayout->addRow("Date", expenseDateEdit);
+    expenseFormLayout->addRow("Cardholder", expenseCardholderCombo);
     expenseFormLayout->addRow("Paid by", expensePayerCombo);
     expenseFormLayout->addRow("Paid for", expensePaidForCombo);
     expenseFormLayout->addRow("", equalSplitCheck);
     expensesLayout->addLayout(expenseFormLayout);
 
+    connect(expenseItemEdit, &QLineEdit::textEdited, this, [this]() { if (!m_updatingExpenseForm) saveExpense(ExpenseField::Item); });
+    connect(expenseAmountEdit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this]() { if (!m_updatingExpenseForm) saveExpense(ExpenseField::Amount); });
+    expenseDateEdit->setValidator(new QRegularExpressionValidator(QRegularExpression("^\\d{4}-\\d{2}-\\d{2}$"), expenseDateEdit));
+    connect(expenseDateEdit, &QLineEdit::editingFinished, this, [this]() { if (!m_updatingExpenseForm) saveExpense(ExpenseField::Date); });
+    connect(expenseCardholderCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() { if (!m_updatingExpenseForm) saveExpense(ExpenseField::Cardholder); });
+    connect(expensePayerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() { if (!m_updatingExpenseForm) saveExpense(ExpenseField::PaidBy); });
+    connect(expensePaidForCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this]() { if (!m_updatingExpenseForm) saveExpense(ExpenseField::PaidFor); });
+    connect(equalSplitCheck, &QCheckBox::toggled, this, [this]() { if (!m_updatingExpenseForm) saveExpense(ExpenseField::EqualSplit); });
+
     QHBoxLayout* expenseButtonsLayout = new QHBoxLayout();
-    addExpenseButton = new QPushButton("Add expense", this);
+    addExpenseButton = new QPushButton("New expense", this);
     removeExpenseButton = new QPushButton("Remove expense", this);
     connect(addExpenseButton, &QPushButton::clicked, this, &MainWindow::addExpense);
     connect(removeExpenseButton, &QPushButton::clicked, this, &MainWindow::removeExpense);
@@ -140,7 +180,9 @@ MainWindow::MainWindow(QWidget* parent)
 
     QMenu* settingsMenu = menuBar->addMenu("Settings");
     QAction* usersSettingsAction = settingsMenu->addAction("Users...");
+    QAction* recurringAction = settingsMenu->addAction("Recurring expenses...");
     connect(usersSettingsAction, &QAction::triggered, this, &MainWindow::openUserSettings);
+    connect(recurringAction, &QAction::triggered, this, &MainWindow::openRecurringExpensesSettings);
 
     setCentralWidget(central);
     setMinimumSize(900, 600);
@@ -148,6 +190,7 @@ MainWindow::MainWindow(QWidget* parent)
     loadUserSettingsFromDisk();
     refreshUserList();
     loadExpenseSettingsFromDisk();
+    loadRecurringExpensesFromDisk();
     updateExpenseViewFilter();
 }
 
@@ -278,7 +321,8 @@ void MainWindow::saveExpenseSettingsToDisk() {
             << (expense.isEqualSplit() ? 1 : 0) << "|"
             << QString::fromStdString(expense.getDate()) << "|"
             << QString::fromStdString(expense.getStatementMonth()) << "|"
-            << QString::fromStdString(expense.getPaidFor().empty() ? "Both" : expense.getPaidFor()) << "\n";
+            << QString::fromStdString(expense.getPaidFor().empty() ? "Both" : expense.getPaidFor()) << "|"
+            << QString::fromStdString(expense.getCardholder()) << "\n";
     }
     file.close();
 }
@@ -324,9 +368,20 @@ void MainWindow::loadExpenseSettingsFromDisk() {
         const QString dateText = parts.value(4).trimmed();
         const QString statementMonthText = parts.value(5).trimmed();
         const QString paidForText = parts.value(6).trimmed();
-        expense.setDate(dateText.isEmpty() ? QDate::currentDate().toString(Qt::ISODate).toStdString() : dateText.toStdString());
+        const QString cardholderText = parts.value(7).trimmed();
+        if (dateText.isEmpty()) {
+            expense.setDate(QDate::currentDate().toString(Qt::ISODate).toStdString());
+        } else {
+            const QDate parsed = parseDate(dateText);
+            if (parsed.isValid()) {
+                expense.setDate(parsed.toString(Qt::ISODate).toStdString());
+            } else {
+                expense.setDate(QDate::currentDate().toString(Qt::ISODate).toStdString());
+            }
+        }
         expense.setStatementMonth(statementMonthText.isEmpty() ? QString("%1-%2").arg(selectedFilterYear, 4, 10, QLatin1Char('0')).arg(selectedFilterMonth, 2, 10, QLatin1Char('0')).toStdString() : statementMonthText.toStdString());
         expense.setPaidFor(paidForText.isEmpty() ? "Both" : paidForText.toStdString());
+        expense.setCardholder(cardholderText.isEmpty() ? std::string() : cardholderText.toStdString());
 
         User payer("Unknown", 0);
         const QString payerName = parts.value(2).trimmed();
@@ -342,6 +397,25 @@ void MainWindow::loadExpenseSettingsFromDisk() {
     }
 
     file.close();
+
+    // If we loaded expenses, set the filter to the first expense's statement month
+    if (expenseList.size() > 0) {
+        const QString firstStatement = QString::fromStdString(expenseList.getExpense(1).getStatementMonth()).trimmed();
+        if (!firstStatement.isEmpty()) {
+            const QStringList parts = firstStatement.split('-');
+            if (parts.size() >= 2) {
+                bool yok = false, mok = false;
+                const int y = parts[0].toInt(&yok);
+                const int m = parts[1].toInt(&mok);
+                if (yok && mok) {
+                    selectedFilterYear = y;
+                    selectedFilterMonth = m;
+                    if (yearSpinBox) yearSpinBox->setValue(selectedFilterYear);
+                    if (monthSlider) monthSlider->setValue(selectedFilterMonth);
+                }
+            }
+        }
+    }
 }
 
 void MainWindow::importExpensesFromFile() {
@@ -367,6 +441,7 @@ void MainWindow::importExpensesFromFile() {
     in.setEncoding(QStringConverter::Utf8);
 
     int importedCount = 0;
+    QDate firstImportedDate;
 
     while (!in.atEnd()) {
         const QString line = in.readLine();
@@ -421,6 +496,13 @@ void MainWindow::importExpensesFromFile() {
             continue;
         }
 
+        // Normalize imported date to ISO format; skip if unparseable
+        const QDate importedDate = parseDate(date);
+        if (!importedDate.isValid()) {
+            continue;
+        }
+        const QString isoDate = importedDate.toString(Qt::ISODate);
+
         double amount = 0.0;
         bool amountParsed = false;
         if (!amountField.isEmpty()) {
@@ -443,20 +525,21 @@ void MainWindow::importExpensesFromFile() {
             continue;
         }
 
-        User payer = userList.getUserByCardIdentifier(cardIdentifier.toStdString());
-        if (payer.getName().empty() || payer.getCardIdentifier() != cardIdentifier.toStdString()) {
-            payer = User(cardIdentifier.toStdString(), 0);
-            payer.setCardNumber(cardIdentifier.toStdString());
-            userList.addUser(payer);
+        if (!firstImportedDate.isValid()) {
+            firstImportedDate = importedDate;
         }
+
+        const User payer = userList.getUserByCardIdentifier(cardIdentifier.toStdString());
+        const bool knownPayer = !payer.getName().empty() && payer.getCardIdentifier() == cardIdentifier.toStdString();
 
         Expense expense;
         expense.setItem(item.toStdString());
         expense.setAmount(amount);
         expense.setPaidBy(payer);
+        expense.setCardholder(knownPayer ? payer.getName() : std::string());
         expense.setCardIdentifier(cardIdentifier.toStdString());
-        expense.setDate(date.toStdString());
-        expense.setStatementMonth(QString("%1-%2").arg(selectedFilterYear, 4, 10, QLatin1Char('0')).arg(selectedFilterMonth, 2, 10, QLatin1Char('0')).toStdString());
+        expense.setDate(isoDate.toStdString());
+        expense.setStatementMonth(QString("%1-%2").arg(importedDate.year(), 4, 10, QLatin1Char('0')).arg(importedDate.month(), 2, 10, QLatin1Char('0')).toStdString());
         expense.setPaidFor("Both");
         expense.setEqualSplit(true);
         expenseList.addExpense(expense);
@@ -465,6 +548,18 @@ void MainWindow::importExpensesFromFile() {
 
     file.close();
     refreshUserList();
+
+    if (firstImportedDate.isValid()) {
+        selectedFilterYear = firstImportedDate.year();
+        selectedFilterMonth = firstImportedDate.month();
+        if (yearSpinBox) {
+            yearSpinBox->setValue(selectedFilterYear);
+        }
+        if (monthSlider) {
+            monthSlider->setValue(selectedFilterMonth);
+        }
+    }
+
     updateExpenseViewFilter();
 
     QMessageBox::information(this, "Import complete", QString("Imported %1 expenses.").arg(importedCount));
@@ -475,12 +570,21 @@ void MainWindow::refreshUserList() {
     if (userListWidget) {
         userListWidget->clear();
     }
+
     if (expensePayerCombo) {
+        expensePayerCombo->blockSignals(true);
         expensePayerCombo->clear();
     }
-    if (expensePaidForCombo) {
-        expensePaidForCombo->clear();
+    if (expenseCardholderCombo) {
+        expenseCardholderCombo->blockSignals(true);
+        expenseCardholderCombo->clear();
     }
+    if (expensePaidForCombo) {
+        expensePaidForCombo->blockSignals(true);
+        expensePaidForCombo->clear();
+        expensePaidForCombo->addItem("Both");
+    }
+
     for (int i = 1; i <= userList.size(); ++i) {
         const User user = userList.getUser(i);
         if (userListWidget) {
@@ -489,18 +593,37 @@ void MainWindow::refreshUserList() {
         if (expensePayerCombo) {
             expensePayerCombo->addItem(QString::fromStdString(user.getName()));
         }
+        if (expenseCardholderCombo) {
+            expenseCardholderCombo->addItem(QString::fromStdString(user.getName()));
+        }
         if (expensePaidForCombo) {
             expensePaidForCombo->addItem(QString::fromStdString(user.getName()));
         }
     }
+
+    if (expensePayerCombo) {
+        expensePayerCombo->blockSignals(false);
+        expensePayerCombo->setCurrentIndex(-1);
+    }
+    if (expenseCardholderCombo) {
+        expenseCardholderCombo->blockSignals(false);
+        expenseCardholderCombo->setCurrentIndex(-1);
+    }
     if (expensePaidForCombo) {
-        expensePaidForCombo->insertItem(0, "Both");
+        expensePaidForCombo->blockSignals(false);
         expensePaidForCombo->setCurrentIndex(0);
     }
 }
 
 // Update expense list:
 void MainWindow::refreshExpenseList() {
+    // Preserve currently selected expense (by expense index) across refreshes
+    int previouslySelectedExpenseIndex = getSelectedExpenseIndex();
+    
+    if (previouslySelectedExpenseIndex <= 0 && lastSelectedExpenseIndex > 0) {
+        previouslySelectedExpenseIndex = lastSelectedExpenseIndex;
+    }
+
     visibleExpenseIndices.clear();
     expenseListWidget->setRowCount(0);
 
@@ -519,17 +642,73 @@ void MainWindow::refreshExpenseList() {
         const QString amountText = QString::number(expense.getAmount(), 'f', 2);
         const QString equalSplitText = expense.isEqualSplit() ? "Yes" : "No";
 
-        expenseListWidget->setItem(visibleCount, 0, new QTableWidgetItem(dateText));
+        QTableWidgetItem* dateItem = new QTableWidgetItem(dateText);
+        dateItem->setData(Qt::UserRole, i);
+        const QDate parsed = parseDate(dateText);
+        if (parsed.isValid()) {
+            dateItem->setData(Qt::EditRole, parsed);
+        }
+        expenseListWidget->setItem(visibleCount, 0, dateItem);
         expenseListWidget->setItem(visibleCount, 1, new QTableWidgetItem(equalSplitText));
-        expenseListWidget->setItem(visibleCount, 2, new QTableWidgetItem(amountText));
-        expenseListWidget->setItem(visibleCount, 3, new QTableWidgetItem(QString::fromStdString(payerName.empty() ? "Unknown" : payerName)));
-        expenseListWidget->setItem(visibleCount, 4, new QTableWidgetItem(QString::fromStdString(expense.getPaidFor().empty() ? "Both" : expense.getPaidFor())));
-        expenseListWidget->setItem(visibleCount, 5, new QTableWidgetItem(equalSplitText));expenseListWidget->setItem(visibleCount, 5, new QTableWidgetItem(QString::fromStdString(expense.getItem())));
+        QTableWidgetItem* amountItem = new AmountTableWidgetItem(amountText, expense.getAmount());
+        amountItem->setData(Qt::EditRole, expense.getAmount());
+        expenseListWidget->setItem(visibleCount, 2, amountItem);
+        const QString cardholderName = QString::fromStdString(expense.getCardholder());
+        expenseListWidget->setItem(visibleCount, 3, new QTableWidgetItem(cardholderName));
+        expenseListWidget->setItem(visibleCount, 4, new QTableWidgetItem(QString::fromStdString(payerName.empty() ? "Unknown" : payerName)));
+        expenseListWidget->setItem(visibleCount, 5, new QTableWidgetItem(QString::fromStdString(expense.getPaidFor().empty() ? "Both" : expense.getPaidFor())));
+        expenseListWidget->setItem(visibleCount, 6, new QTableWidgetItem(QString::fromStdString(expense.getItem())));
         ++visibleCount;
+    }
+
+    // Debug: show visible indices
+    
+    QString visibleStr;
+    for (int v : visibleExpenseIndices) {
+        visibleStr += QString::number(v) + ",";
+    }
+    
+
+    // Try to restore previous selection if that expense is still visible
+    if (previouslySelectedExpenseIndex > 0) {
+        const int rowToSelect = visibleExpenseIndices.indexOf(previouslySelectedExpenseIndex);
+        
+        if (rowToSelect >= 0) {
+            expenseListWidget->selectionModel()->select(
+                expenseListWidget->model()->index(rowToSelect, 0),
+                QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+            expenseListWidget->setCurrentCell(rowToSelect, 0);
+            lastSelectedExpenseIndex = previouslySelectedExpenseIndex;
+            
+        }
+    } else {
+    }
+
+    // If nothing is selected but there are visible expenses, auto-select the first one
+    const QModelIndexList selRows = expenseListWidget->selectionModel()->selectedRows(0);
+    if (selRows.isEmpty() && !visibleExpenseIndices.isEmpty()) {
+        expenseListWidget->selectionModel()->select(
+            expenseListWidget->model()->index(0, 0),
+            QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+        expenseListWidget->setCurrentCell(0, 0);
+        // update persistent index
+        lastSelectedExpenseIndex = visibleExpenseIndices.value(0);
+        
+        loadSelectedExpense();
     }
 
     if (resultArea) {
         computeSplit();
+    }
+
+    // Restore expense form state after rebuilding the list
+    const QModelIndexList selectedRows = expenseListWidget->selectionModel()->selectedRows(0);
+    if (selectedRows.size() == 1) {
+        loadSelectedExpense();
+    } else if (selectedRows.size() > 1) {
+        clearExpenseFormForMultiSelection();
+    } else {
+        clearExpenseForm();
     }
 }
 
@@ -543,16 +722,48 @@ void MainWindow::clearUserForm() {
 }
 
 void MainWindow::clearExpenseForm() {
+    m_updatingExpenseForm = true;
     expenseItemEdit->clear();
+    expenseItemEdit->setPlaceholderText("");
+    expenseDateEdit->clear();
+    expenseDateEdit->setPlaceholderText("");
+    if (expenseCardholderCombo) {
+        expenseCardholderCombo->setCurrentIndex(-1);
+    }
+    expenseAmountEdit->setSpecialValueText("");
     expenseAmountEdit->setValue(0.0);
-    equalSplitCheck->setChecked(true);
-    if (expensePayerCombo->count() > 0) {
+    equalSplitCheck->setCheckState(Qt::Unchecked);
+    if (expensePayerCombo && expensePayerCombo->count() > 0) {
+        expensePayerCombo->setCurrentIndex(-1);
+    }
+    if (expensePaidForCombo) {
+        expensePaidForCombo->setCurrentIndex(-1);
+    }
+    m_updatingExpenseForm = false;
+}
+
+void MainWindow::clearExpenseFormForMultiSelection() {
+    m_updatingExpenseForm = true;
+    expenseItemEdit->clear();
+    expenseItemEdit->setPlaceholderText("(multiple)");
+    expenseDateEdit->clear();
+    expenseDateEdit->setPlaceholderText("(multiple)");
+    if (expenseCardholderCombo) {
+        ensureComboPlaceholder(expenseCardholderCombo, "(multiple)");
+        expenseCardholderCombo->setCurrentIndex(0);
+    }
+    expenseAmountEdit->setSpecialValueText("(multiple)");
+    expenseAmountEdit->setValue(expenseAmountEdit->minimum());
+    ensureComboPlaceholder(expensePayerCombo, "(multiple)");
+    ensureComboPlaceholder(expensePaidForCombo, "(multiple)");
+    if (expensePayerCombo) {
         expensePayerCombo->setCurrentIndex(0);
     }
     if (expensePaidForCombo) {
-        const int bothIndex = expensePaidForCombo->findText("Both");
-        expensePaidForCombo->setCurrentIndex(bothIndex >= 0 ? bothIndex : 0);
+        expensePaidForCombo->setCurrentIndex(0);
     }
+    equalSplitCheck->setCheckState(Qt::Unchecked);
+    m_updatingExpenseForm = false;
 }
 
 void MainWindow::addUser() {
@@ -612,25 +823,26 @@ void MainWindow::loadSelectedUser() {
 
 // Expense methods:
 void MainWindow::addExpense() {
-    if (expensePayerCombo->count() == 0) {
+    if (expensePayerCombo->count() <= 1) {
         QMessageBox::warning(this, "No user", "Add at least one user before creating an expense.");
         return;
     }
     Expense expense;
-    expense.setItem(expenseItemEdit->text().toStdString());
-    expense.setAmount(expenseAmountEdit->value());
-    const User payer = userList.getUser(expensePayerCombo->currentIndex() + 1);
-    expense.setPaidBy(payer);
+    expense.setItem("");
+    expense.setAmount(0.0);
+    expense.setPaidFor("Both");
+    expense.setEqualSplit(false);
     expense.setDate(QDate::currentDate().toString(Qt::ISODate).toStdString());
     expense.setStatementMonth(QString("%1-%2").arg(selectedFilterYear, 4, 10, QLatin1Char('0')).arg(selectedFilterMonth, 2, 10, QLatin1Char('0')).toStdString());
-    expense.setPaidFor(expensePaidForCombo->currentText().toStdString());
-    expense.setEqualSplit(equalSplitCheck->isChecked());
-    if (expense.getItem().empty()) {
-        QMessageBox::warning(this, "Missing data", "Please enter an expense item.");
-        return;
-    }
     expenseList.addExpense(expense);
     refreshExpenseList();
+    if (expenseListWidget->rowCount() > 0) {
+        const int lastRow = expenseListWidget->rowCount() - 1;
+        expenseListWidget->selectionModel()->select(
+            expenseListWidget->model()->index(lastRow, 0),
+            QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+        expenseListWidget->setCurrentCell(lastRow, 0);
+    }
     clearExpenseForm();
 }
 
@@ -660,47 +872,188 @@ void MainWindow::removeExpense() {
     clearExpenseForm();
 }
 
-void MainWindow::saveExpense() {
-    if (expenseListWidget->currentRow() < 0) {
-        QMessageBox::warning(this, "Selection needed", "Select an expense first.");
+void MainWindow::saveExpense(ExpenseField field) {
+    const QModelIndexList selectedRows = expenseListWidget->selectionModel()->selectedRows(0);
+    if (selectedRows.isEmpty()) {
         return;
     }
-    const int index = getSelectedExpenseIndex();
-    if (index <= 0) {
+    const User payer = (expensePayerCombo->currentIndex() >= 0)
+        ? userList.getUser(expensePayerCombo->currentIndex() + 1)
+        : User("Unknown", 0);
+
+    const QString amountText = QString::number(expenseAmountEdit->value(), 'f', 2);
+    const QString dateText = expenseDateEdit->text();
+    QString cardholderText = expenseCardholderCombo->currentIndex() >= 0 ? expenseCardholderCombo->currentText() : QString();
+    if (cardholderText == "(multiple)") {
+        cardholderText.clear();
+    }
+    const QString payerText = expensePayerCombo->currentText();
+    const QString paidForText = expensePaidForCombo->currentText();
+    const QString itemText = expenseItemEdit->text();
+    const QString equalSplitText = equalSplitCheck->isChecked() ? "Yes" : "No";
+
+    if (field == ExpenseField::Date || field == ExpenseField::All) {
+        if (!isIsoDateValid(dateText)) {
+            QMessageBox::warning(this, "Invalid date", "Please enter a valid ISO date in the form YYYY-MM-DD.");
+            return;
+        }
+    }
+
+    for (const QModelIndex& selectedIndex : selectedRows) {
+        const int row = selectedIndex.row();
+        const int index = getSelectedExpenseIndexForRow(row);
+        if (index <= 0) {
+            continue;
+        }
+        Expense expense = expenseList.getExpense(index);
+        switch (field) {
+            case ExpenseField::Item:
+                expense.setItem(itemText.toStdString());
+                expenseListWidget->item(row, 6)->setText(itemText);
+                break;
+            case ExpenseField::Amount:
+                expense.setAmount(expenseAmountEdit->value());
+                expenseListWidget->item(row, 2)->setText(amountText);
+                break;
+            case ExpenseField::Date:
+                expense.setDate(dateText.toStdString());
+                expenseListWidget->item(row, 0)->setText(dateText);
+                break;
+            case ExpenseField::Cardholder:
+                expense.setCardholder(cardholderText == "(multiple)" ? std::string() : cardholderText.toStdString());
+                expenseListWidget->item(row, 3)->setText(cardholderText == "(multiple)" ? QString() : cardholderText);
+                break;
+            case ExpenseField::PaidBy:
+                if (expensePayerCombo->currentIndex() >= 0) {
+                    expense.setPaidBy(payer);
+                    expenseListWidget->item(row, 4)->setText(payerText);
+                }
+                break;
+            case ExpenseField::PaidFor:
+                expense.setPaidFor(paidForText.toStdString());
+                expenseListWidget->item(row, 5)->setText(paidForText);
+                break;
+            case ExpenseField::EqualSplit:
+                expense.setEqualSplit(equalSplitCheck->isChecked());
+                expenseListWidget->item(row, 1)->setText(equalSplitText);
+                break;
+            case ExpenseField::All:
+                expense.setItem(itemText.toStdString());
+                expense.setAmount(expenseAmountEdit->value());
+                expense.setDate(dateText.toStdString());
+                expense.setCardholder(cardholderText == "(multiple)" ? std::string() : cardholderText.toStdString());
+                expense.setEqualSplit(equalSplitCheck->isChecked());
+                expense.setPaidFor(paidForText.toStdString());
+                if (expensePayerCombo->currentIndex() >= 0) {
+                    expense.setPaidBy(payer);
+                }
+                expenseListWidget->item(row, 6)->setText(itemText);
+                expenseListWidget->item(row, 2)->setText(amountText);
+                expenseListWidget->item(row, 0)->setText(dateText);
+                expenseListWidget->item(row, 3)->setText(cardholderText);
+                expenseListWidget->item(row, 1)->setText(equalSplitText);
+                expenseListWidget->item(row, 4)->setText(payerText);
+                expenseListWidget->item(row, 5)->setText(paidForText);
+                break;
+        }
+        expenseList.updateExpense(index, expense);
+    }
+
+    // Update settlement result immediately after changes
+    if (resultArea) {
+        computeSplit();
+    }
+
+    saveExpenseSettingsToDisk();
+}
+
+bool MainWindow::isIsoDateValid(const QString& dateText) const {
+    const QDate parsedDate = QDate::fromString(dateText, Qt::ISODate);
+    return parsedDate.isValid() && QRegularExpression("^\\d{4}-\\d{2}-\\d{2}$").match(dateText).hasMatch();
+}
+
+QDate MainWindow::parseDate(const QString& dateText) const {
+    if (dateText.isEmpty()) return QDate();
+    QDate d = QDate::fromString(dateText, Qt::ISODate);
+    if (d.isValid()) return d;
+    // Common alternative formats
+    d = QDate::fromString(dateText, "dd/MM/yyyy");
+    if (d.isValid()) return d;
+    d = QDate::fromString(dateText, "MM/dd/yyyy");
+    if (d.isValid()) return d;
+    d = QDate::fromString(dateText, "dd.MM.yyyy");
+    if (d.isValid()) return d;
+    d = QDate::fromString(dateText, "yyyy-MM");
+    if (d.isValid()) return d;
+    // Fallback: Qt's default parsing
+    d = QDate::fromString(dateText);
+    return d;
+}
+
+void MainWindow::ensureComboPlaceholder(QComboBox* combo, const QString& placeholder) {
+    if (!combo) {
         return;
     }
-    Expense expense;
-    expense.setItem(expenseItemEdit->text().toStdString());
-    expense.setAmount(expenseAmountEdit->value());
-    const User payer = userList.getUser(expensePayerCombo->currentIndex() + 1);
-    expense.setPaidBy(payer);
-    expense.setPaidFor(expensePaidForCombo->currentText().toStdString());
-    expense.setEqualSplit(equalSplitCheck->isChecked());
-    expenseList.updateExpense(index, expense);
-    refreshExpenseList();
+    if (combo->findText(placeholder) < 0) {
+        combo->insertItem(0, placeholder);
+    }
+}
+
+void MainWindow::removeComboPlaceholder(QComboBox* combo, const QString& placeholder) {
+    if (!combo) {
+        return;
+    }
+    const int index = combo->findText(placeholder);
+    if (index >= 0) {
+        combo->removeItem(index);
+    }
 }
 
 void MainWindow::loadSelectedExpense() {
-    if (expenseListWidget->currentRow() < 0) {
+    const QModelIndexList selectedRows = expenseListWidget->selectionModel()->selectedRows(0);
+    if (selectedRows.size() != 1) {
+        clearExpenseFormForMultiSelection();
         return;
     }
+    removeComboPlaceholder(expenseCardholderCombo, "(multiple)");
+    removeComboPlaceholder(expensePayerCombo, "(multiple)");
+    removeComboPlaceholder(expensePaidForCombo, "(multiple)");
     const int actualIndex = getSelectedExpenseIndex();
     if (actualIndex <= 0) {
         return;
     }
+    // remember last selected expense index so selection can be restored across refreshes/filters
+    lastSelectedExpenseIndex = actualIndex;
     const Expense expense = expenseList.getExpense(actualIndex);
+    m_updatingExpenseForm = true;
     expenseItemEdit->setText(QString::fromStdString(expense.getItem()));
+    expenseItemEdit->setPlaceholderText("");
+    expenseDateEdit->setText(QString::fromStdString(expense.getDate()));
+    expenseDateEdit->setPlaceholderText("");
+    const QString cardholderName = QString::fromStdString(expense.getCardholder());
+    const int cardholderIndex = expenseCardholderCombo->findText(cardholderName);
+    if (cardholderIndex >= 0) {
+        expenseCardholderCombo->setCurrentIndex(cardholderIndex);
+    } else {
+        expenseCardholderCombo->setCurrentIndex(-1);
+    }
+    expenseAmountEdit->setSpecialValueText("");
     expenseAmountEdit->setValue(expense.getAmount());
-    equalSplitCheck->setChecked(expense.isEqualSplit());
+    equalSplitCheck->setCheckState(expense.isEqualSplit() ? Qt::Checked : Qt::Unchecked);
     const int payerIndex = expensePayerCombo->findText(QString::fromStdString(expense.getPaidBy().getName()));
     if (payerIndex >= 0) {
         expensePayerCombo->setCurrentIndex(payerIndex);
+    } else {
+        expensePayerCombo->setCurrentIndex(-1);
     }
     const QString paidForValue = QString::fromStdString(expense.getPaidFor().empty() ? "Both" : expense.getPaidFor());
     const int paidForIndex = expensePaidForCombo->findText(paidForValue);
     if (paidForIndex >= 0) {
         expensePaidForCombo->setCurrentIndex(paidForIndex);
+    } else if (expensePaidForCombo->count() > 0) {
+        expensePaidForCombo->setCurrentIndex(0);
     }
+    m_updatingExpenseForm = false;
 }
 
 
@@ -852,7 +1205,8 @@ void MainWindow::saveToFile(const QString& filePath) {
             << (expense.isEqualSplit() ? 1 : 0) << "|"
             << QString::fromStdString(expense.getDate()) << "|"
             << QString::fromStdString(expense.getStatementMonth()) << "|"
-            << QString::fromStdString(expense.getPaidFor().empty() ? "" : expense.getPaidFor()) << "\n";
+            << QString::fromStdString(expense.getPaidFor().empty() ? "" : expense.getPaidFor()) << "|"
+            << QString::fromStdString(expense.getCardholder()) << "\n";
     }
 
     file.close();
@@ -927,9 +1281,11 @@ void MainWindow::loadFromFile(const QString& filePath) {
             const QString dateText = parts.value(4).trimmed();
             const QString statementMonthText = parts.value(5).trimmed();
             const QString paidForText = parts.value(6).trimmed();
+            const QString cardholderText = parts.value(7).trimmed();
             expense.setDate(dateText.isEmpty() ? QDate::currentDate().toString(Qt::ISODate).toStdString() : dateText.toStdString());
             expense.setStatementMonth(statementMonthText.isEmpty() ? QString("%1-%2").arg(selectedFilterYear, 4, 10, QLatin1Char('0')).arg(selectedFilterMonth, 2, 10, QLatin1Char('0')).toStdString() : statementMonthText.toStdString());
             expense.setPaidFor(paidForText.toStdString());
+            expense.setCardholder(cardholderText.toStdString());
 
             User payer("Unknown", 0);
             const QString payerName = parts.value(2).trimmed();
@@ -965,6 +1321,29 @@ void MainWindow::updateExpenseViewFilter() {
         const QStringList monthNames = {"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"};
         monthFilterLabel->setText(QString("Showing %1 %2").arg(monthNames.value(selectedFilterMonth - 1, "Unknown")).arg(selectedFilterYear));
     }
+    applyRecurringExpensesIfNeeded();
+    // Temporarily disable sorting when the month filter changes so the refresh uses natural order
+    if (expenseListWidget) {
+        const bool wasSorting = expenseListWidget->isSortingEnabled();
+        if (wasSorting) {
+            expenseListWidget->setSortingEnabled(false);
+            if (expenseListWidget->horizontalHeader()) {
+                expenseListWidget->horizontalHeader()->setSortIndicatorShown(false);
+            }
+        }
+
+        refreshExpenseList();
+
+        // Re-enable sorting so the user can sort again, but the previous sort is cleared by the refresh
+        if (wasSorting) {
+            expenseListWidget->setSortingEnabled(true);
+            if (expenseListWidget->horizontalHeader()) {
+                expenseListWidget->horizontalHeader()->setSortIndicatorShown(true);
+            }
+        }
+        return;
+    }
+
     refreshExpenseList();
 }
 
@@ -1013,90 +1392,250 @@ int MainWindow::getSelectedExpenseIndex() const {
 }
 
 int MainWindow::getSelectedExpenseIndexForRow(int row) const {
-    if (!expenseListWidget || row < 0 || row >= visibleExpenseIndices.size()) {
+    if (!expenseListWidget || row < 0 || row >= expenseListWidget->rowCount()) {
         return -1;
     }
-    return visibleExpenseIndices.at(row);
+    const QTableWidgetItem* item = expenseListWidget->item(row, 0);
+    if (!item) {
+        return -1;
+    }
+    return item->data(Qt::UserRole).toInt();
 }
 
 void MainWindow::computeSplit() {
-    if (userList.size() < 2) {
-        resultArea->setPlainText("Add at least two users to compute a split.");
+    const std::string result = computeSettlementResult(userList, expenseList, selectedFilterYear, selectedFilterMonth);
+    resultArea->setPlainText(QString::fromStdString(result));
+}
+
+// Recurring expenses:
+QString MainWindow::getRecurringExpensesFilePath() const {
+    const QString dataDir = getAppDataDirectoryPath();
+    return dataDir.isEmpty() ? QString() : QDir(dataDir).filePath("recurring.txt");
+}
+
+void MainWindow::saveRecurringExpensesToDisk() {
+    const QString filePath = getRecurringExpensesFilePath();
+    if (filePath.isEmpty()) {
         return;
     }
 
-    userList.updateSalaryFactors();
-    const User user1 = userList.getUser(1);
-    const User user2 = userList.getUser(2);
-    double balanceUser1 = 0.0;
-    double balanceUser2 = 0.0;
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        return;
+    }
 
-    for (int i = 1; i <= expenseList.size(); ++i) {
-        const Expense expense = expenseList.getExpense(i);
-        if (!expenseMatchesCurrentMonthYear(expense)) {
+    QTextStream out(&file);
+    out << "RECURRING_V1\n";
+    out << recurringExpenses.size() << "\n";
+    for (int i = 1; i <= recurringExpenses.size(); ++i) {
+        const Expense e = recurringExpenses.getExpense(i);
+        out << QString::fromStdString(e.getItem()) << "|"
+            << e.getAmount() << "|"
+            << (e.isEqualSplit() ? 1 : 0) << "|"
+            << QString::fromStdString(e.getPaidFor().empty() ? "Both" : e.getPaidFor()) << "|"
+            << QString::fromStdString(e.getPaidBy().getName()) << "\n";
+    }
+    file.close();
+}
+
+void MainWindow::loadRecurringExpensesFromDisk() {
+    const QString filePath = getRecurringExpensesFilePath();
+    if (filePath.isEmpty()) {
+        return;
+    }
+
+    QFile file(filePath);
+    if (!file.exists() || !file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return;
+    }
+
+    QTextStream in(&file);
+    if (in.readLine() != "RECURRING_V1") {
+        file.close();
+        return;
+    }
+
+    recurringExpenses.clearExpenses();
+    bool ok = false;
+    const int count = in.readLine().toInt(&ok);
+    if (!ok) {
+        file.close();
+        return;
+    }
+
+    for (int i = 0; i < count; ++i) {
+        const QStringList parts = in.readLine().split('|');
+        if (parts.size() < 4) {
             continue;
         }
-
-        const QString paidForText = QString::fromStdString(expense.getPaidFor().empty() ? "Both" : expense.getPaidFor());
-        const QString payerName = QString::fromStdString(expense.getPaidBy().getName());
-        const double amount = expense.getAmount();
-
-        if (paidForText == "Both") {
-            if (payerName == QString::fromStdString(user1.getName())) {
-                balanceUser1 += amount / 2.0;
-                balanceUser2 -= amount / 2.0;
-            } else if (payerName == QString::fromStdString(user2.getName())) {
-                balanceUser2 += amount / 2.0;
-                balanceUser1 -= amount / 2.0;
+        Expense e;
+        e.setItem(parts[0].toStdString());
+        e.setAmount(parts[1].toDouble());
+        e.setEqualSplit(parts[2] == "1");
+        e.setPaidFor(parts[3].toStdString());
+        if (parts.size() >= 5) {
+            const QString payerName = parts[4].trimmed();
+            User payer("Unknown", 0);
+            for (int j = 1; j <= userList.size(); ++j) {
+                const User candidate = userList.getUser(j);
+                if (candidate.getName() == payerName.toStdString()) {
+                    payer = candidate;
+                    break;
+                }
             }
-        } else if (paidForText == QString::fromStdString(user1.getName())) {
-            if (payerName == QString::fromStdString(user2.getName())) {
-                balanceUser1 -= amount;
-                balanceUser2 += amount;
-            }
-        } else if (paidForText == QString::fromStdString(user2.getName())) {
-            if (payerName == QString::fromStdString(user1.getName())) {
-                balanceUser1 += amount;
-                balanceUser2 -= amount;
-            }
+            e.setPaidBy(payer);
         }
+        recurringExpenses.addExpense(e);
     }
 
-    if (qAbs(balanceUser1) < 1e-9 && qAbs(balanceUser2) < 1e-9) {
-        resultArea->setPlainText("Everyone is settled.");
+    file.close();
+}
+
+void MainWindow::applyRecurringExpensesIfNeeded() {
+    if (recurringExpenses.size() == 0) {
         return;
     }
 
-    QString result;
-    if (balanceUser1 > 1e-9) {
-        result += QString("%1 should receive %2 from %3.")
-                      .arg(QString::fromStdString(user1.getName()))
-                      .arg(QString::number(balanceUser1, 'f', 2))
-                      .arg(QString::fromStdString(user2.getName()));
-    } else if (balanceUser1 < -1e-9) {
-        result += QString("%1 owes %2 to %3.")
-                      .arg(QString::fromStdString(user1.getName()))
-                      .arg(QString::number(-balanceUser1, 'f', 2))
-                      .arg(QString::fromStdString(user2.getName()));
+    const QString month = QString("%1-%2")
+        .arg(selectedFilterYear, 4, 10, QLatin1Char('0'))
+        .arg(selectedFilterMonth, 2, 10, QLatin1Char('0'));
+
+    // Remove stale recurring expenses for this month before re-adding
+    for (int i = expenseList.size(); i >= 1; --i) {
+        if (QString::fromStdString(expenseList.getExpense(i).getStatementMonth()) != month) {
+            continue;
+        }
+        const std::string itemName = expenseList.getExpense(i).getItem();
+        for (int j = 1; j <= recurringExpenses.size(); ++j) {
+            if (recurringExpenses.getExpense(j).getItem() == itemName) {
+                expenseList.deleteExpense(i);
+                break;
+            }
+        }
     }
 
-    if (balanceUser2 > 1e-9) {
-        if (!result.isEmpty()) {
-            result += "\n";
-        }
-        result += QString("%1 should receive %2 from %3.")
-                      .arg(QString::fromStdString(user2.getName()))
-                      .arg(QString::number(balanceUser2, 'f', 2))
-                      .arg(QString::fromStdString(user1.getName()));
-    } else if (balanceUser2 < -1e-9) {
-        if (!result.isEmpty()) {
-            result += "\n";
-        }
-        result += QString("%1 owes %2 to %3.")
-                      .arg(QString::fromStdString(user2.getName()))
-                      .arg(QString::number(-balanceUser2, 'f', 2))
-                      .arg(QString::fromStdString(user1.getName()));
+    const QString date = QDate(selectedFilterYear, selectedFilterMonth, 1).toString(Qt::ISODate);
+    for (int i = 1; i <= recurringExpenses.size(); ++i) {
+        Expense e = recurringExpenses.getExpense(i);
+        e.setDate(date.toStdString());
+        e.setStatementMonth(month.toStdString());
+        expenseList.addExpense(e);
     }
 
-    resultArea->setPlainText(result.isEmpty() ? "Everyone is settled." : result);
+    saveExpenseSettingsToDisk();
+}
+
+void MainWindow::openRecurringExpensesSettings() {
+    QDialog dialog(this);
+    dialog.setWindowTitle("Recurring expenses");
+    dialog.resize(600, 400);
+
+    QVBoxLayout* dialogLayout = new QVBoxLayout(&dialog);
+
+    QTableWidget* table = new QTableWidget(&dialog);
+    table->setColumnCount(5);
+    table->setHorizontalHeaderLabels({"Item", "Amount", "Equal split", "Paid for", "Paid by"});
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setSelectionMode(QAbstractItemView::SingleSelection);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setAlternatingRowColors(true);
+    table->horizontalHeader()->setStretchLastSection(true);
+    dialogLayout->addWidget(table);
+
+    QFormLayout* formLayout = new QFormLayout();
+    QLineEdit* itemEdit = new QLineEdit(&dialog);
+    QDoubleSpinBox* amountEdit = new QDoubleSpinBox(&dialog);
+    amountEdit->setRange(0.0, 10000000.0);
+    amountEdit->setDecimals(2);
+    QCheckBox* splitCheck = new QCheckBox("Equal split", &dialog);
+    splitCheck->setChecked(true);
+    QComboBox* paidForCombo = new QComboBox(&dialog);
+    QComboBox* paidByCombo = new QComboBox(&dialog);
+    paidForCombo->addItem("Both");
+    for (int i = 1; i <= userList.size(); ++i) {
+        const QString name = QString::fromStdString(userList.getUser(i).getName());
+        paidForCombo->addItem(name);
+        paidByCombo->addItem(name);
+    }
+    formLayout->addRow("Item", itemEdit);
+    formLayout->addRow("Amount", amountEdit);
+    formLayout->addRow("Paid for", paidForCombo);
+    formLayout->addRow("Paid by", paidByCombo);
+    formLayout->addRow("", splitCheck);
+    dialogLayout->addLayout(formLayout);
+
+    auto refreshTable = [&]() {
+        table->setRowCount(recurringExpenses.size());
+        for (int i = 1; i <= recurringExpenses.size(); ++i) {
+            const Expense e = recurringExpenses.getExpense(i);
+            table->setItem(i - 1, 0, new QTableWidgetItem(QString::fromStdString(e.getItem())));
+            table->setItem(i - 1, 1, new QTableWidgetItem(QString::number(e.getAmount(), 'f', 2)));
+            table->setItem(i - 1, 2, new QTableWidgetItem(e.isEqualSplit() ? "Yes" : "No"));
+            table->setItem(i - 1, 3, new QTableWidgetItem(QString::fromStdString(e.getPaidFor().empty() ? "Both" : e.getPaidFor())));
+            table->setItem(i - 1, 4, new QTableWidgetItem(QString::fromStdString(e.getPaidBy().getName().empty() ? "Unknown" : e.getPaidBy().getName())));
+        }
+    };
+
+    QHBoxLayout* buttonsLayout = new QHBoxLayout();
+    QPushButton* addButton = new QPushButton("Add", &dialog);
+    QPushButton* removeButton = new QPushButton("Remove", &dialog);
+    QPushButton* closeButton = new QPushButton("Close", &dialog);
+
+    connect(addButton, &QPushButton::clicked, &dialog, [&]() {
+        if (itemEdit->text().trimmed().isEmpty()) {
+            QMessageBox::warning(&dialog, "Missing data", "Please enter an item name.");
+            return;
+        }
+        Expense e;
+        e.setItem(itemEdit->text().trimmed().toStdString());
+        e.setAmount(amountEdit->value());
+        e.setEqualSplit(splitCheck->isChecked());
+        e.setPaidFor(paidForCombo->currentText().toStdString());
+        const QString payerName = paidByCombo->currentText();
+        for (int j = 1; j <= userList.size(); ++j) {
+            const User candidate = userList.getUser(j);
+            if (candidate.getName() == payerName.toStdString()) {
+                e.setPaidBy(candidate);
+                break;
+            }
+        }
+        recurringExpenses.addExpense(e);
+        saveRecurringExpensesToDisk();
+        applyRecurringExpensesIfNeeded();
+        saveExpenseSettingsToDisk();
+        refreshExpenseList();
+        refreshTable();
+        itemEdit->clear();
+        amountEdit->setValue(0.0);
+    });
+
+    connect(removeButton, &QPushButton::clicked, &dialog, [&]() {
+        if (table->currentRow() < 0) {
+            QMessageBox::warning(&dialog, "Selection needed", "Select a recurring expense first.");
+            return;
+        }
+        // Purge all instances of this template from every month before removing the template
+        const std::string deletedItem = recurringExpenses.getExpense(table->currentRow() + 1).getItem();
+        for (int i = expenseList.size(); i >= 1; --i) {
+            if (expenseList.getExpense(i).getItem() == deletedItem) {
+                expenseList.deleteExpense(i);
+            }
+        }
+        recurringExpenses.deleteExpense(table->currentRow() + 1);
+        saveRecurringExpensesToDisk();
+        applyRecurringExpensesIfNeeded();
+        saveExpenseSettingsToDisk();
+        refreshExpenseList();
+        refreshTable();
+    });
+
+    connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    buttonsLayout->addWidget(addButton);
+    buttonsLayout->addWidget(removeButton);
+    buttonsLayout->addWidget(closeButton);
+    dialogLayout->addLayout(buttonsLayout);
+
+    refreshTable();
+    dialog.exec();
 }
