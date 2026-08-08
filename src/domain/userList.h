@@ -14,7 +14,7 @@ public:
     void displayUsernames() const;
     void clearUsers();
     void deleteUser(int index);
-    void modifyUser(int index, const std::string& newName, int newSalary);
+    void modifyUser(int index, const std::string& newName, int newSalary, const std::string& newCardNumber);
     User getUser(int index) const;
     int size() const;
     void updateSalaryFactors();

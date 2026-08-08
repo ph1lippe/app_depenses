@@ -16,13 +16,14 @@ void UserList::deleteUser(int index) {
     users.erase(users.begin() + index - 1);
 }
 
-void UserList::modifyUser(int index, const std::string& newName, int newSalary) {
+void UserList::modifyUser(int index, const std::string& newName, int newSalary, const std::string& newCardNumber) {
     if (index < 1 || index > users.size()) {
         std::cout << "Invalid user index." << std::endl;
         return;
     }
     users[index - 1].setName(newName);
     users[index - 1].setSalary(newSalary);
+    users[index - 1].setCardNumber(newCardNumber);
 }
 
 void UserList::displayUsers() const {

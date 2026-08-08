@@ -66,11 +66,14 @@ void ExpenseManager::userMenu() {
             std::cin >> selection;
             std::string newName;
             int newSalary;
+            std::string newCardNumber;
             std::cout << "Enter new name: ";
             std::cin >> newName;
             std::cout << "Enter new salary: ";
             std::cin >> newSalary;
-            userList.modifyUser(selection, newName, newSalary);
+            std::cout << "Enter new card number: ";
+            std::cin >> newCardNumber;
+            userList.modifyUser(selection, newName, newSalary, newCardNumber);
         } else if (selection == 4) {
             userList.displayUsers();
             std::cout << std::endl << "Press enter to continue...";
