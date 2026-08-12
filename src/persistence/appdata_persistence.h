@@ -2,6 +2,7 @@
 #define APPDATA_PERSISTENCE_H
 
 #include <QDate>
+#include <QMap>
 #include <QString>
 #include <functional>
 
@@ -14,9 +15,13 @@ QString getAppDataDirectoryPath();
 QString getUserSettingsFilePath();
 QString getExpenseSettingsFilePath();
 QString getRecurringExpensesFilePath();
+QString getMonthNotesFilePath();
 
 bool saveUsers(const UserList& userList, const QString& filePath = QString());
 bool loadUsers(UserList& userList, const QString& filePath = QString());
+
+bool saveMonthNotes(const QMap<QString, QString>& monthNotes, const QString& filePath = QString());
+bool loadMonthNotes(QMap<QString, QString>& monthNotes, const QString& filePath = QString());
 
 bool saveExpenses(const ExpenseList& expenseList, const QString& filePath = QString());
 bool loadExpenses(

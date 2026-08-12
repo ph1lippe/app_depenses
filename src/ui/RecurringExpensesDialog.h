@@ -25,6 +25,8 @@ signals:
 
 private slots:
     void onUserRowSelected(int row, int column);
+    void onFormEdited();
+    void updateSelectedRecurringExpense();
     void addRecurringExpense();
     void removeRecurringExpense();
 
@@ -35,6 +37,8 @@ private:
 
     UserList& m_userList;
     ExpenseList& m_recurringExpenses;
+    bool m_updatingForm;
+    int selectedRow;
 
     QTableWidget* table;
     QLineEdit* itemEdit;

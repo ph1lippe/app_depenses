@@ -6,7 +6,6 @@ int main(int argc, char* argv[]) {
     app.setApplicationName("app_depenses");
     MainWindow window;
     window.setWindowTitle("Expense Splitter");
-    window.resize(1000, 800);
-    window.show();
+    window.showMaximized();
     return app.exec();
 }

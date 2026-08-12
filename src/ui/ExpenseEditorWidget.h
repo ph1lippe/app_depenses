@@ -22,6 +22,7 @@ public:
     QString payerText() const;
     QString paidForText() const;
     bool equalSplit() const;
+    bool isFormDataValid(QString* errorMessage = nullptr) const;
 
     void setUserOptions(const QStringList& users);
     void clearForm();

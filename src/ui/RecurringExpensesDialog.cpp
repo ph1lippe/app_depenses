@@ -20,6 +20,8 @@ RecurringExpensesDialog::RecurringExpensesDialog(UserList& userList,
     : QDialog(parent),
       m_userList(userList),
       m_recurringExpenses(recurringExpenses),
+      m_updatingForm(false),
+      selectedRow(-1),
       table(new QTableWidget(this)),
       itemEdit(new QLineEdit(this)),
       amountEdit(new QDoubleSpinBox(this)),
@@ -40,8 +42,9 @@ RecurringExpensesDialog::RecurringExpensesDialog(UserList& userList,
     table->setAlternatingRowColors(true);
     table->horizontalHeader()->setStretchLastSection(true);
 
-    amountEdit->setRange(0.0, 10000000.0);
+    amountEdit->setRange(-10000000.0, 10000000.0);
     amountEdit->setDecimals(2);
+    amountEdit->setAccelerated(true);
     splitCheck->setChecked(true);
 
     QFormLayout* formLayout = new QFormLayout();
@@ -62,6 +65,11 @@ RecurringExpensesDialog::RecurringExpensesDialog(UserList& userList,
     dialogLayout->addLayout(buttonsLayout);
 
     connect(table, &QTableWidget::cellClicked, this, &RecurringExpensesDialog::onUserRowSelected);
+    connect(itemEdit, &QLineEdit::editingFinished, this, &RecurringExpensesDialog::onFormEdited);
+    connect(amountEdit, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &RecurringExpensesDialog::onFormEdited);
+    connect(splitCheck, &QCheckBox::toggled, this, &RecurringExpensesDialog::onFormEdited);
+    connect(paidForCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &RecurringExpensesDialog::onFormEdited);
+    connect(paidByCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &RecurringExpensesDialog::onFormEdited);
     connect(addButton, &QPushButton::clicked, this, &RecurringExpensesDialog::addRecurringExpense);
     connect(removeButton, &QPushButton::clicked, this, &RecurringExpensesDialog::removeRecurringExpense);
     connect(closeButton, &QPushButton::clicked, this, &QDialog::accept);
@@ -94,17 +102,24 @@ void RecurringExpensesDialog::refreshTable() {
 }
 
 void RecurringExpensesDialog::clearForm() {
+    m_updatingForm = true;
     itemEdit->clear();
     amountEdit->setValue(0.0);
     splitCheck->setChecked(true);
     paidForCombo->setCurrentIndex(0);
     paidByCombo->setCurrentIndex(0);
+    selectedRow = -1;
+    m_updatingForm = false;
 }
 
 void RecurringExpensesDialog::onUserRowSelected(int row, int) {
     if (row < 0) {
+        selectedRow = -1;
         return;
     }
+
+    selectedRow = row;
+    m_updatingForm = true;
     const Expense e = m_recurringExpenses.getExpense(row + 1);
     itemEdit->setText(QString::fromStdString(e.getItem()));
     amountEdit->setValue(e.getAmount());
@@ -113,7 +128,63 @@ void RecurringExpensesDialog::onUserRowSelected(int row, int) {
     paidForCombo->setCurrentIndex(qMax(0, paidForIndex));
     const int paidByIndex = paidByCombo->findText(QString::fromStdString(e.getPaidBy().getName()));
     paidByCombo->setCurrentIndex(qMax(0, paidByIndex));
+    m_updatingForm = false;
     table->selectRow(row);
+}
+
+void RecurringExpensesDialog::onFormEdited() {
+    if (m_updatingForm || selectedRow < 0) {
+        return;
+    }
+    updateSelectedRecurringExpense();
+}
+
+void RecurringExpensesDialog::updateSelectedRecurringExpense() {
+    if (selectedRow < 0) {
+        return;
+    }
+
+    const Expense oldExpense = m_recurringExpenses.getExpense(selectedRow + 1);
+    const QString item = itemEdit->text().trimmed();
+    const QString paidFor = paidForCombo->currentText();
+    const QString paidByName = paidByCombo->currentText();
+
+    if (item.isEmpty()) {
+        QMessageBox::warning(this, "Missing data", "Please enter an item name.");
+        m_updatingForm = true;
+        itemEdit->setText(QString::fromStdString(oldExpense.getItem()));
+        m_updatingForm = false;
+        return;
+    }
+
+    const bool itemUnchanged = item == QString::fromStdString(oldExpense.getItem());
+    const bool amountUnchanged = qFabs(amountEdit->value() - oldExpense.getAmount()) < 0.000001;
+    const bool equalSplitUnchanged = splitCheck->isChecked() == oldExpense.isEqualSplit();
+    const bool paidForUnchanged = paidFor == QString::fromStdString(oldExpense.getPaidFor().empty() ? "Both" : oldExpense.getPaidFor());
+    const bool paidByUnchanged = paidByName == QString::fromStdString(oldExpense.getPaidBy().getName());
+
+    if (itemUnchanged && amountUnchanged && equalSplitUnchanged && paidForUnchanged && paidByUnchanged) {
+        return;
+    }
+
+    Expense updatedExpense = oldExpense;
+    updatedExpense.setItem(item.toStdString());
+    updatedExpense.setAmount(amountEdit->value());
+    updatedExpense.setEqualSplit(splitCheck->isChecked());
+    updatedExpense.setPaidFor(paidFor.toStdString());
+
+    for (int j = 1; j <= m_userList.size(); ++j) {
+        const User candidate = m_userList.getUser(j);
+        if (candidate.getName() == paidByName.toStdString()) {
+            updatedExpense.setPaidBy(candidate);
+            break;
+        }
+    }
+
+    m_recurringExpenses.updateExpense(selectedRow + 1, updatedExpense);
+    refreshTable();
+    table->selectRow(selectedRow);
+    emit recurringExpensesChanged();
 }
 
 void RecurringExpensesDialog::addRecurringExpense() {

@@ -2,10 +2,13 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDate>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLineEdit>
+#include <QLocale>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QRegularExpressionValidator>
@@ -23,10 +26,14 @@ ExpenseEditorWidget::ExpenseEditorWidget(QWidget* parent)
       addButton(new QPushButton("New expense", this)),
       removeButton(new QPushButton("Remove expense", this)) {
     QFormLayout* expenseFormLayout = new QFormLayout(this);
-    amountEdit->setRange(0.0, 10000000.0);
+    amountEdit->setRange(-10000000.0, 10000000.0);
     amountEdit->setDecimals(2);
     amountEdit->setSpecialValueText("");
-    dateEdit->setValidator(new QRegularExpressionValidator(QRegularExpression(R"(^\d{4}-\d{2}-\d{2}$)"), this));
+    amountEdit->setAccelerated(true);
+    amountEdit->setLocale(QLocale::c());
+    amountEdit->setGroupSeparatorShown(false);
+    dateEdit->setPlaceholderText("YYYY-MM-DD");
+    dateEdit->setInputMask("0000-00-00");
 
     paidForCombo->addItem("Both");
     equalSplitCheck->setTristate(false);
@@ -51,7 +58,18 @@ ExpenseEditorWidget::ExpenseEditorWidget(QWidget* parent)
         if (!m_updatingForm) emit amountEdited();
     });
     connect(dateEdit, &QLineEdit::editingFinished, this, [this]() {
-        if (!m_updatingForm) emit dateEdited();
+        if (m_updatingForm) {
+            return;
+        }
+
+        QString validationError;
+        if (!isFormDataValid(&validationError)) {
+            QMessageBox::warning(this, "Invalid date", validationError);
+            dateEdit->setFocus();
+            return;
+        }
+
+        emit dateEdited();
     });
     connect(cardholderCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
         if (!m_updatingForm) emit cardholderChanged(index);
@@ -95,6 +113,62 @@ QString ExpenseEditorWidget::paidForText() const {
 
 bool ExpenseEditorWidget::equalSplit() const {
     return equalSplitCheck->isChecked();
+}
+
+bool ExpenseEditorWidget::isFormDataValid(QString* errorMessage) const {
+    const QString itemText = itemEdit->text().trimmed();
+    if (itemText.isEmpty()) {
+        if (errorMessage) {
+            *errorMessage = "Please enter a valid item name.";
+        }
+        return false;
+    }
+
+    if (!qIsFinite(amountEdit->value())) {
+        if (errorMessage) {
+            *errorMessage = "Please enter a valid amount.";
+        }
+        return false;
+    }
+
+    const QString dateText = dateEdit->text().trimmed();
+    if (dateText.isEmpty()) {
+        if (errorMessage) {
+            *errorMessage = "Please enter a date in the YYYY-MM-DD format.";
+        }
+        return false;
+    }
+
+    if (dateText.length() != 10 || dateText.at(4) != '-' || dateText.at(7) != '-') {
+        if (errorMessage) {
+            *errorMessage = "Please enter a date in the YYYY-MM-DD format.";
+        }
+        return false;
+    }
+
+    bool yearOk = false;
+    bool monthOk = false;
+    bool dayOk = false;
+    const int year = dateText.mid(0, 4).toInt(&yearOk);
+    const int month = dateText.mid(5, 2).toInt(&monthOk);
+    const int day = dateText.mid(8, 2).toInt(&dayOk);
+
+    if (!yearOk || !monthOk || !dayOk) {
+        if (errorMessage) {
+            *errorMessage = "Please enter a valid date in the YYYY-MM-DD format.";
+        }
+        return false;
+    }
+
+    const QDate parsedDate(year, month, day);
+    if (!parsedDate.isValid() || parsedDate.toString("yyyy-MM-dd") != dateText) {
+        if (errorMessage) {
+            *errorMessage = "Please enter a valid date in the YYYY-MM-DD format.";
+        }
+        return false;
+    }
+
+    return true;
 }
 
 void ExpenseEditorWidget::setUserOptions(const QStringList& users) {

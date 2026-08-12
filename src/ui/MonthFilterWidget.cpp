@@ -17,8 +17,8 @@ MonthFilterWidget::MonthFilterWidget(QWidget* parent)
     monthSlider->setValue(1);
     monthSlider->setTickPosition(QSlider::TicksBelow);
     monthSlider->setTickInterval(1);
-    monthSlider->setMinimumWidth(360);
-    monthSlider->setFixedHeight(40);
+    monthSlider->setMinimumWidth(320);
+    monthSlider->setFixedHeight(18);
     monthSlider->setStyleSheet(
         "QSlider::groove:horizontal { height: 10px; margin: 0px; }"
         "QSlider::handle:horizontal { width: 32px; height: 32px; margin: -11px 0; }"
@@ -27,6 +27,7 @@ MonthFilterWidget::MonthFilterWidget(QWidget* parent)
 
     yearSpinBox->setRange(2000, 2100);
     yearSpinBox->setValue(QDate::currentDate().year());
+    yearSpinBox->setFixedHeight(24);
 
     monthFilterLayout->addWidget(new QLabel("Month", this));
     monthFilterLayout->addWidget(monthSlider);

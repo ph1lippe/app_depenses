@@ -53,6 +53,98 @@ QString getRecurringExpensesFilePath() {
     return dataDir.isEmpty() ? QString() : QDir(dataDir).filePath("recurring.txt");
 }
 
+QString getMonthNotesFilePath() {
+    const QString dataDir = getAppDataDirectoryPath();
+    return dataDir.isEmpty() ? QString() : QDir(dataDir).filePath("month_notes.txt");
+}
+
+namespace {
+QString escapePersistedText(const QString& text) {
+    QString escaped = text;
+    escaped.replace('\\', "\\\\");
+    escaped.replace('|', "\\|");
+    escaped.replace('\n', "\\n");
+    escaped.replace('\r', "\\r");
+    return escaped;
+}
+
+QString unescapePersistedText(const QString& text) {
+    QString unescaped = text;
+    unescaped.replace("\\r", "\r");
+    unescaped.replace("\\n", "\n");
+    unescaped.replace("\\|", "|");
+    unescaped.replace("\\\\", "\\");
+    return unescaped;
+}
+} // namespace
+
+bool saveMonthNotes(const QMap<QString, QString>& monthNotes, const QString& filePath) {
+    const QString targetPath = filePath.isEmpty() ? getMonthNotesFilePath() : filePath;
+    if (targetPath.isEmpty()) {
+        return false;
+    }
+
+    QFile file(targetPath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        return false;
+    }
+
+    QTextStream out(&file);
+    out << "MONTH_NOTES_V1\n";
+    out << monthNotes.size() << "\n";
+    for (auto it = monthNotes.constBegin(); it != monthNotes.constEnd(); ++it) {
+        out << escapePersistedText(it.key()) << "|" << escapePersistedText(it.value()) << "\n";
+    }
+    file.close();
+    return true;
+}
+
+bool loadMonthNotes(QMap<QString, QString>& monthNotes, const QString& filePath) {
+    const QString targetPath = filePath.isEmpty() ? getMonthNotesFilePath() : filePath;
+    if (targetPath.isEmpty()) {
+        monthNotes.clear();
+        return false;
+    }
+
+    QFile file(targetPath);
+    if (!file.exists() || !file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        monthNotes.clear();
+        return false;
+    }
+
+    monthNotes.clear();
+    QTextStream in(&file);
+    const QString header = in.readLine();
+    if (header != "MONTH_NOTES_V1") {
+        file.close();
+        return false;
+    }
+
+    bool ok = false;
+    const int noteCount = in.readLine().toInt(&ok);
+    if (!ok) {
+        file.close();
+        return false;
+    }
+
+    for (int i = 0; i < noteCount; ++i) {
+        const QString line = in.readLine();
+        if (line.isEmpty()) {
+            continue;
+        }
+        const int separatorIndex = line.indexOf('|');
+        if (separatorIndex < 0) {
+            continue;
+        }
+        const QString key = unescapePersistedText(line.left(separatorIndex));
+        const QString value = unescapePersistedText(line.mid(separatorIndex + 1));
+        monthNotes.insert(key, value);
+    }
+
+    file.close();
+    return true;
+}
+
 bool saveUsers(const UserList& userList, const QString& filePath) {
     const QString targetPath = filePath.isEmpty() ? defaultUserFilePath() : filePath;
     if (targetPath.isEmpty()) {

@@ -81,9 +81,72 @@ target_link_libraries(test_weighted_split PRIVATE Qt6::Widgets)
 
 add_test(NAME WeightedSplitTest COMMAND test_weighted_split)
 
+add_executable(test_negative_amount_editing
+src/ui/ExpenseEditorWidget.cpp
+src/ui/ExpenseTableWidget.cpp
+src/ui/MonthFilterWidget.cpp
+src/ui/SettlementResultWidget.cpp
+src/ui/UserSettingsDialog.cpp
+src/ui/RecurringExpensesDialog.cpp
+src/domain/expense.cpp
+src/domain/expenseList.cpp
+src/domain/user.cpp
+src/domain/userList.cpp
+src/domain/expenseManager.cpp
+src/domain/settlement.cpp
+src/persistence/appdata_persistence.cpp
+tests/test_negative_amount_editing.cpp
+)
+
+target_include_directories(test_negative_amount_editing PRIVATE src src/domain src/ui src/persistence)
+
+target_link_libraries(test_negative_amount_editing PRIVATE Qt6::Widgets)
+
+add_test(NAME NegativeAmountEditingTest COMMAND test_negative_amount_editing)
+
+add_executable(test_expense_editor_validation
+src/ui/ExpenseEditorWidget.cpp
+src/ui/ExpenseTableWidget.cpp
+src/ui/MonthFilterWidget.cpp
+src/ui/SettlementResultWidget.cpp
+src/ui/UserSettingsDialog.cpp
+src/ui/RecurringExpensesDialog.cpp
+src/domain/expense.cpp
+src/domain/expenseList.cpp
+src/domain/user.cpp
+src/domain/userList.cpp
+src/domain/expenseManager.cpp
+src/domain/settlement.cpp
+src/persistence/appdata_persistence.cpp
+tests/test_expense_editor_validation.cpp
+)
+
+target_include_directories(test_expense_editor_validation PRIVATE src src/domain src/ui src/persistence)
+
+target_link_libraries(test_expense_editor_validation PRIVATE Qt6::Widgets)
+
+add_test(NAME ExpenseEditorValidationTest COMMAND test_expense_editor_validation)
+
+add_executable(test_month_notes_persistence
+src/domain/expense.cpp
+src/domain/expenseList.cpp
+src/domain/user.cpp
+src/domain/userList.cpp
+src/domain/expenseManager.cpp
+src/domain/settlement.cpp
+src/persistence/appdata_persistence.cpp
+tests/test_month_notes_persistence.cpp
+)
+
+target_include_directories(test_month_notes_persistence PRIVATE src src/domain src/ui src/persistence)
+
+target_link_libraries(test_month_notes_persistence PRIVATE Qt6::Widgets)
+
+add_test(NAME MonthNotesPersistenceTest COMMAND test_month_notes_persistence)
+
 add_custom_target(run_tests
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
-    DEPENDS test_settlement test_equal_split_different_salaries test_weighted_split
+    DEPENDS test_settlement test_equal_split_different_salaries test_weighted_split test_negative_amount_editing test_expense_editor_validation test_month_notes_persistence
 )
 
 add_custom_target(release_artifact

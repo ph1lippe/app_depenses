@@ -27,6 +27,7 @@
 #include <QGroupBox>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QPlainTextEdit>
 #include <QtGlobal>
 
 class AmountTableWidgetItem : public QTableWidgetItem {
@@ -52,22 +53,53 @@ MainWindow::MainWindow(QWidget* parent)
       expenseListWidget(nullptr),
       expenseEditorWidget(nullptr),
       monthFilterWidget(nullptr),
+      monthNotesEditor(nullptr),
       settlementResultWidget(nullptr),
-      selectedFilterMonth(1),
+      selectedFilterMonth(QDate::currentDate().month()),
       selectedFilterYear(QDate::currentDate().year()) {
     QWidget* central = new QWidget(this);
     QVBoxLayout* mainLayout = new QVBoxLayout(central);
 
+    QWidget* topBar = new QWidget(this);
+    QHBoxLayout* topBarLayout = new QHBoxLayout(topBar);
+    topBarLayout->setContentsMargins(0, 0, 0, 0);
+
     QGroupBox* monthFilterGroup = new QGroupBox("Expense month filter", this);
+    monthFilterGroup->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    monthFilterGroup->setMaximumHeight(90);
     QHBoxLayout* monthFilterLayout = new QHBoxLayout(monthFilterGroup);
+    monthFilterLayout->setContentsMargins(6, 4, 6, 4);
     monthFilterWidget = new MonthFilterWidget(this);
+    monthFilterWidget->setMinimumHeight(28);
+    monthFilterWidget->setMaximumHeight(72);
     monthFilterWidget->setMonth(selectedFilterMonth);
     monthFilterWidget->setYear(selectedFilterYear);
     monthFilterLayout->addWidget(monthFilterWidget);
     monthFilterLayout->addStretch();
+    topBarLayout->addWidget(monthFilterGroup, 1);
+
+    QGroupBox* monthNotesGroup = new QGroupBox("Notes for current month", this);
+    monthNotesGroup->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    monthNotesGroup->setMaximumHeight(90);
+    QVBoxLayout* monthNotesLayout = new QVBoxLayout(monthNotesGroup);
+    monthNotesLayout->setContentsMargins(6, 4, 6, 4);
+    monthNotesEditor = new QPlainTextEdit(this);
+    monthNotesEditor->setPlaceholderText("Write notes for this month...");
+    monthNotesEditor->setMaximumHeight(70);
+    monthNotesEditor->setMinimumWidth(260);
+    monthNotesLayout->addWidget(monthNotesEditor);
+    connect(monthNotesEditor, &QPlainTextEdit::textChanged, this, [this]() {
+        if (!m_updatingMonthNotesText) {
+            saveCurrentMonthNotes();
+        }
+    });
+
+    topBarLayout->addWidget(monthNotesGroup, 1);
     connect(monthFilterWidget, &MonthFilterWidget::filterChanged, this, [this](int month, int year) {
+        saveCurrentMonthNotes();
         selectedFilterMonth = month;
         selectedFilterYear = year;
+        loadCurrentMonthNotes();
         updateExpenseViewFilter();
     });
 
@@ -110,15 +142,21 @@ MainWindow::MainWindow(QWidget* parent)
     splitLayout->addWidget(settlementResultWidget);
 
     expensesGroup->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
-    mainLayout->addWidget(monthFilterGroup);
+    mainLayout->addWidget(topBar);
     mainLayout->addWidget(expensesGroup, 1);
     mainLayout->addWidget(splitGroup);
 
     QMenuBar* menuBar = this->menuBar();
     QMenu* fileMenu = menuBar->addMenu("File");
     QAction* saveAction = fileMenu->addAction("Save results");
+    saveAction->setShortcut(QKeySequence::Save);
+    saveAction->setShortcutContext(Qt::WindowShortcut);
     QAction* loadAction = fileMenu->addAction("Load results");
-    QAction* importAction = fileMenu->addAction("Import expenses...");
+    loadAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_L));
+    loadAction->setShortcutContext(Qt::WindowShortcut);
+    QAction* importAction = fileMenu->addAction("Import expenses");
+    importAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_I));
+    importAction->setShortcutContext(Qt::WindowShortcut);
     connect(saveAction, &QAction::triggered, this, &MainWindow::saveStateToFile);
     connect(loadAction, &QAction::triggered, this, &MainWindow::loadStateFromFile);
     connect(importAction, &QAction::triggered, this, &MainWindow::importExpensesFromFile);
@@ -131,11 +169,11 @@ MainWindow::MainWindow(QWidget* parent)
 
     setCentralWidget(central);
     setMinimumSize(900, 600);
-    showMaximized();
     loadUserSettingsFromDisk();
     refreshUserList();
     loadExpenseSettingsFromDisk();
     loadRecurringExpensesFromDisk();
+    loadCurrentMonthNotes();
     updateExpenseViewFilter();
 }
 
@@ -195,6 +233,14 @@ void MainWindow::loadExpenseSettingsFromDisk() {
                     }
                 }
             }
+        }
+    } else {
+        const QDate today = QDate::currentDate();
+        selectedFilterYear = today.year();
+        selectedFilterMonth = today.month();
+        if (monthFilterWidget) {
+            monthFilterWidget->setYear(selectedFilterYear);
+            monthFilterWidget->setMonth(selectedFilterMonth);
         }
     }
 }
@@ -530,6 +576,21 @@ void MainWindow::saveExpense(ExpenseField field) {
 
     const QString amountText = QString::number(expenseEditorWidget->amount(), 'f', 2);
     const QString dateText = expenseEditorWidget->dateText();
+
+    if (field == ExpenseField::Date || field == ExpenseField::All) {
+        if (!expenseEditorWidget->isFormDataValid(nullptr)) {
+            if (dateText.length() >= 10) {
+                QMessageBox::warning(this, "Invalid date", "Please enter a valid ISO date in the form YYYY-MM-DD.");
+            }
+            return;
+        }
+    }
+
+    QString validationError;
+    if (!expenseEditorWidget->isFormDataValid(&validationError)) {
+        QMessageBox::warning(this, "Invalid entry", validationError);
+        return;
+    }
     QString cardholderText = expenseEditorWidget->cardholderText();
     if (cardholderText == "(multiple)") {
         cardholderText.clear();
@@ -934,6 +995,36 @@ void MainWindow::saveRecurringExpensesToDisk() {
 
 void MainWindow::loadRecurringExpensesFromDisk() {
     app_persistence::loadRecurringExpenses(recurringExpenses);
+}
+
+void MainWindow::saveCurrentMonthNotes() {
+    if (!monthNotesEditor) {
+        return;
+    }
+    const QString key = currentMonthKey();
+    if (key.isEmpty()) {
+        return;
+    }
+    monthNotes[key] = monthNotesEditor->toPlainText();
+    app_persistence::saveMonthNotes(monthNotes);
+}
+
+void MainWindow::loadCurrentMonthNotes() {
+    if (!monthNotesEditor) {
+        return;
+    }
+    app_persistence::loadMonthNotes(monthNotes);
+    const QString key = currentMonthKey();
+    const QString noteText = monthNotes.value(key, QString());
+    m_updatingMonthNotesText = true;
+    monthNotesEditor->setPlainText(noteText);
+    m_updatingMonthNotesText = false;
+}
+
+QString MainWindow::currentMonthKey() const {
+    return QString("%1-%2")
+        .arg(selectedFilterYear, 4, 10, QLatin1Char('0'))
+        .arg(selectedFilterMonth, 2, 10, QLatin1Char('0'));
 }
 
 void MainWindow::applyRecurringExpensesIfNeeded() {

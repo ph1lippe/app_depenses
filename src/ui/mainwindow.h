@@ -11,6 +11,7 @@
 
 class QCheckBox;
 class QDate;
+class QPlainTextEdit;
 
 class ExpenseEditorWidget;
 class ExpenseTableWidget;
@@ -59,6 +60,9 @@ private:
     void loadExpenseSettingsFromDisk();
     void saveRecurringExpensesToDisk();
     void loadRecurringExpensesFromDisk();
+    void saveCurrentMonthNotes();
+    void loadCurrentMonthNotes();
+    QString currentMonthKey() const;
     void applyRecurringExpensesIfNeeded();
     bool expenseMatchesCurrentMonthYear(const Expense& expense) const;
     int getSelectedExpenseIndex() const;
@@ -75,9 +79,12 @@ private:
     ExpenseTableWidget* expenseListWidget;
     ExpenseEditorWidget* expenseEditorWidget;
     MonthFilterWidget* monthFilterWidget;
+    QPlainTextEdit* monthNotesEditor;
     SettlementResultWidget* settlementResultWidget;
 
     bool m_updatingExpenseForm{false};
+    bool m_updatingMonthNotesText{false};
+    QMap<QString, QString> monthNotes;
     QVector<int> visibleExpenseIndices;
     int selectedFilterMonth;
     int selectedFilterYear;
