@@ -586,10 +586,12 @@ void MainWindow::saveExpense(ExpenseField field) {
         }
     }
 
-    QString validationError;
-    if (!expenseEditorWidget->isFormDataValid(&validationError)) {
-        QMessageBox::warning(this, "Invalid entry", validationError);
-        return;
+    if (field == ExpenseField::All) {
+        QString validationError;
+        if (!expenseEditorWidget->isFormDataValid(&validationError)) {
+            QMessageBox::warning(this, "Invalid entry", validationError);
+            return;
+        }
     }
     QString cardholderText = expenseEditorWidget->cardholderText();
     if (cardholderText == "(multiple)") {
