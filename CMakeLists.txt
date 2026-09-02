@@ -14,7 +14,7 @@ if(MSVC)
     add_compile_options(/Zc:__cplusplus /permissive-)
 endif()
 
-add_executable(app_depenses
+add_executable(app_depenses WIN32
 src/domain/expense.cpp
 src/domain/expenseList.cpp
 src/domain/user.cpp
