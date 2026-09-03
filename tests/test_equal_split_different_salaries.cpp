@@ -23,7 +23,7 @@ int main() {
     expenseList.addExpense(expense);
 
     const std::string result = computeSettlementResult(userList, expenseList, 2026, 7);
-    const std::string expected = "Bob owes 5.00 to Alice.";
+    const std::string expected = "Bob owes 10.00 to Alice.";
 
     if (result != expected) {
         std::cerr << "Expected: " << expected << "\n";

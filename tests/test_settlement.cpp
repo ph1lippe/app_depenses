@@ -23,11 +23,22 @@ int main() {
     expenseList.addExpense(expense);
 
     const std::string result = computeSettlementResult(userList, expenseList, 2026, 7);
-    const std::string expected = "Bob owes 5.00 to Alice.";
+    const std::string expected = "Bob owes 10.00 to Alice.";
 
     if (result != expected) {
         std::cerr << "Expected: " << expected << "\n";
         std::cerr << "Actual:   " << result << "\n";
+        return 1;
+    }
+
+    expense.setEqualSplit(false);
+    expenseList = ExpenseList();
+    expenseList.addExpense(expense);
+
+    const std::string weightedResult = computeSettlementResult(userList, expenseList, 2026, 7);
+    if (weightedResult != expected) {
+        std::cerr << "Expected equal salaries to keep the same result: " << expected << "\n";
+        std::cerr << "Actual: " << weightedResult << "\n";
         return 1;
     }
 

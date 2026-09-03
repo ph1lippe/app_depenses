@@ -105,13 +105,13 @@ std::string computeSettlementResult(const UserList& userList, const ExpenseList&
             }
         } else if (paidForText == user1Name) {
             if (payerName == user2Name) {
-                balanceUser1 -= expense.isEqualSplit() ? amount / 2.0 : amount;
-                balanceUser2 += expense.isEqualSplit() ? amount / 2.0 : amount;
+                balanceUser1 -= amount;
+                balanceUser2 += amount;
             }
         } else if (paidForText == user2Name) {
             if (payerName == user1Name) {
-                balanceUser1 += expense.isEqualSplit() ? amount / 2.0 : amount;
-                balanceUser2 -= expense.isEqualSplit() ? amount / 2.0 : amount;
+                balanceUser1 += amount;
+                balanceUser2 -= amount;
             }
         }
     }

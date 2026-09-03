@@ -28,6 +28,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPlainTextEdit>
+#include <QSignalBlocker>
 #include <QtGlobal>
 
 class AmountTableWidgetItem : public QTableWidgetItem {
@@ -228,6 +229,7 @@ void MainWindow::loadExpenseSettingsFromDisk() {
                     selectedFilterYear = y;
                     selectedFilterMonth = m;
                     if (monthFilterWidget) {
+                        const QSignalBlocker filterSignalBlocker(monthFilterWidget);
                         monthFilterWidget->setYear(selectedFilterYear);
                         monthFilterWidget->setMonth(selectedFilterMonth);
                     }
@@ -239,6 +241,7 @@ void MainWindow::loadExpenseSettingsFromDisk() {
         selectedFilterYear = today.year();
         selectedFilterMonth = today.month();
         if (monthFilterWidget) {
+            const QSignalBlocker filterSignalBlocker(monthFilterWidget);
             monthFilterWidget->setYear(selectedFilterYear);
             monthFilterWidget->setMonth(selectedFilterMonth);
         }
